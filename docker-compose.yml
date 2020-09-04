@@ -1,0 +1,77 @@
+version: '3.1'
+services:
+  adminer:
+    image: adminer
+    restart: always
+    ports:
+      - 8080:8080
+  mysql:
+    image: mariadb:latest
+    volumes:
+      - "./data/db:/var/lib/mysql"
+    restart: always
+    ports:
+      - "3306:3306"
+    environment:
+      MYSQL_ROOT_PASSWORD: root
+      MYSQL_DATABASE: wp
+      MYSQL_USER: wp
+      MYSQL_PASSWORD: wp
+  phpfpm:
+    depends_on:
+      - mysql
+    volumes:
+      - "./site/web:/var/www/html"
+      - "./config/php-fpm/php.ini:/usr/local/etc/php/php.ini"
+      - "./config/php-fpm/docker-php-ext-xdebug.ini:/usr/local/etc/php/conf.d/docker-php-ext-xdebug.ini"
+    restart: always
+    build: ./dockerfiles/php-fpm
+  nginx:
+    depends_on:
+      - phpfpm
+    image: nginx:latest
+    volumes:
+      - "./site/web:/var/www/html"
+      - "./config/nginx/default.conf:/etc/nginx/conf.d/default.conf"
+    restart: always
+    labels:
+      - "traefik.enable=true"
+      # - "traefik.http.middlewares.known-ips.ipwhitelist.sourceRange=192.168.1.7,127.0.0.1/32,0.0.0.0/0"
+      # - "traefik.http.middlewares.wp-ratelimit.ratelimit.average=10"
+      # - "traefik.http.middlewares.wp-ratelimit.ratelimit.burst=50"
+      # - "traefik.http.middlewares.secured.chain.middlewares=known-ips,auth-users,wp-ratelimit"
+      - "traefik.http.routers.wp_admin.entrypoints=websecure"
+      # - "traefik.http.routers.wp_admin.middlewares=secured"
+      - "traefik.http.routers.wp_admin.rule=PathPrefix(`/cms`,`/cms/wp-admin`,`/cms/admin`,`/cms/wp-login.php`) || Method(`POST`)"
+      - "traefik.http.routers.wp_admin.tls.certresolver=myresolver"
+      - "traefik.http.routers.wp_web.entrypoints=websecure"
+      # - "traefik.http.routers.wp_web.middlewares=wp-ratelimit"
+      - "traefik.http.routers.wp_web.rule=Host(`pripark.demo-nginx.local`)"
+      - "traefik.http.routers.wp_web.tls.certresolver=myresolver"
+
+  traefik:
+    image: "traefik:v2.2.1"
+    container_name: "traefik"
+    command:
+      # - "--log.level=DEBUG"
+      - "--accesslog=true"
+      - "--api.insecure=true"
+      - "--api.dashboard=true"
+      - "--providers.docker=true"
+      - "--providers.docker.exposedbydefault=false"
+      # - "--entrypoints.web.address=:8080"
+      - "--entrypoints.traefik.address=:8888"
+      - "--entrypoints.websecure.address=:443"
+      - "--certificatesresolvers.myresolver.acme.tlschallenge=true"
+      - "--certificatesresolvers.myresolver.acme.email=conghieu20@gmail.com"
+      - "--certificatesresolvers.myresolver.acme.storage=/letsencrypt/acme.json"
+    labels:
+      traefik.enable: true
+      traefik.http.routers.traefik.service: api@internal
+      traefik.http.routers.traefik.entrypoints: traefik
+    ports:
+      - "443:443"
+      - "8888:8888"
+    volumes:
+      - "./letsencrypt:/letsencrypt"
+      - "/var/run/docker.sock:/var/run/docker.sock:ro"

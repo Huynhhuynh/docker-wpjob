@@ -1,0 +1,3 @@
+site/web/*
+data/db/*
+letsencrypt/*
